@@ -38,25 +38,16 @@ def create_sensor(mongo_client: MongoDBClient, db: Session, sensor: schemas.Sens
 def record_data(redis: RedisClient, mongo_client: MongoDBClient, db: Session, sensor_id: int,
                 data: schemas.SensorData) -> schemas.Sensor:
     redis.set(sensor_id, data.json())
-    sensor = _from_id_and_data_to_sensor(sensor=_get_sensor(mongo_client=mongo_client, db=db, sensor_id=sensor_id),
-                                         data=data)
+    sensor = _from_id_and_data_to_sensor(
+        sensor=_get_sensor_from_sensor_id(mongo_client=mongo_client, db=db, sensor_id=sensor_id),
+        data=data)
     return sensor
 
 
 def get_data(redis: RedisClient, mongo_client: MongoDBClient, db: Session, sensor_id: int) -> schemas.Sensor:
-    sensor = _get_sensor(db=db, mongo_client=mongo_client, sensor_id=sensor_id)
-    redis_data = redis.get(sensor_id)
-    # Parse json to dict
-    data_dict = json.loads(redis_data)
-    # get Sensor Data from dict
-    match sensor.type:
-        case 'Temperatura':
-            sensor_data = schemas.SensorDataTemperature(**data_dict)
-        case 'Velocitat':
-            sensor_data = schemas.SensorDataVelocity(**data_dict)
-        case _:
-            raise HTTPException(status_code=409, detail="Conflict - This type of sensor doesn't exist")
-    sensor_with_data = _from_id_and_data_to_sensor(sensor=sensor, data=sensor_data)
+    sensor = _get_sensor_from_sensor_id(db=db, mongo_client=mongo_client, sensor_id=sensor_id)
+    sensor_with_data = _from_id_and_data_to_sensor(sensor=sensor,
+                                                   data=_get_data(redis=redis, sensor_id=sensor_id, type=sensor.type))
     return sensor_with_data
 
 
@@ -71,6 +62,44 @@ def delete_sensor(db: Session, redis: RedisClient, mongo_client: MongoDBClient, 
     db.delete(db_sensor)
     db.commit()
     return db_sensor
+
+
+def get_sensors_near(db: Session, redis: RedisClient, mongo_client: MongoDBClient, latitude: float, longitude: float) -> \
+        List[schemas.Sensor]:
+    sensors = []
+    collection = mongo_client.getCollection(_SENSOR_COLLECTION)
+    sensors_dicts = collection.find({
+        'latitude': {'$gte': latitude - 1, '$lte': latitude + 1},
+        'longitude': {'$gte': longitude - 1, '$lte': longitude + 1}
+    })
+    for sensor_dict in sensors_dicts:
+        sensor_create = schemas.SensorCreate(**sensor_dict)
+        db_sensor = db.query(models.Sensor).filter(models.Sensor.name == sensor_create.name).first()
+        sensor = _get_sensor_from_db_sensor_and_sensor_create(db_sensor=db_sensor, sensor_create=sensor_create)
+        sensor_data = _get_data(redis=redis, sensor_id=db_sensor.id, type=sensor.type)
+        if sensor_data is None:
+            sensors.append(sensor)
+        else:
+            sensor_with_data = _from_id_and_data_to_sensor(sensor=sensor, data=sensor_data)
+            sensors.append(sensor_with_data)
+    return sensors
+
+
+def _get_data(redis: RedisClient, sensor_id: int, type: str) -> schemas.SensorData | None:
+    redis_data = redis.get(sensor_id)
+    if redis_data is None:
+        return
+    # Parse json to dict
+    data_dict = json.loads(redis_data)
+    # get Sensor Data from dict
+    match type:
+        case 'Temperatura':
+            sensor_data = schemas.SensorDataTemperature(**data_dict)
+        case 'Velocitat':
+            sensor_data = schemas.SensorDataVelocity(**data_dict)
+        case _:
+            raise HTTPException(status_code=409, detail="Conflict - This type of sensor doesn't exist")
+    return sensor_data
 
 
 def _from_id_and_data_to_sensor(sensor: schemas.Sensor, data: schemas.SensorData) -> schemas.Sensor:
@@ -96,12 +125,17 @@ def _from_id_and_data_to_sensor(sensor: schemas.Sensor, data: schemas.SensorData
             raise HTTPException(status_code=409, detail="Conflict - This type of sensor doesn't exist")
 
 
-def _get_sensor(db: Session, mongo_client: MongoDBClient, sensor_id: int) -> schemas.Sensor:
+def _get_sensor_from_sensor_id(db: Session, mongo_client: MongoDBClient, sensor_id: int) -> schemas.Sensor:
     db_sensor = db.query(models.Sensor).filter(models.Sensor.id == sensor_id).first()
     collection = mongo_client.getCollection(_SENSOR_COLLECTION)
     sensor_dict = collection.find_one({"name": db_sensor.name})
     sensor_create = schemas.SensorCreate(**sensor_dict)
-    return schemas.Sensor(id=sensor_id, name=sensor_create.name,
+    return _get_sensor_from_db_sensor_and_sensor_create(db_sensor=db_sensor, sensor_create=sensor_create)
+
+
+def _get_sensor_from_db_sensor_and_sensor_create(db_sensor: models.Sensor,
+                                                 sensor_create: schemas.SensorCreate) -> models.Sensor:
+    return schemas.Sensor(id=db_sensor.id, name=sensor_create.name,
                           latitude=sensor_create.latitude,
                           longitude=sensor_create.longitude,
                           joined_at=str(db_sensor.joined_at),
