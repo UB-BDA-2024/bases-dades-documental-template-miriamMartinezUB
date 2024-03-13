@@ -73,7 +73,6 @@ def get_sensors_near(db: Session, redis: RedisClient, mongo_client: MongoDBClien
         'longitude': {'$gte': longitude - 1, '$lte': longitude + 1}
     })
     for sensor_dict in sensors_dicts:
-        print('hola')
         sensor_create = schemas.SensorCreate(**sensor_dict)
         db_sensor = db.query(models.Sensor).filter(models.Sensor.name == sensor_create.name).first()
         sensor = _get_sensor_from_db_sensor_and_sensor_create(db_sensor=db_sensor, sensor_create=sensor_create)
