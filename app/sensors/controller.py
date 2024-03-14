@@ -44,11 +44,11 @@ router = APIRouter(
 
 # 🙋🏽‍♀️ Add here the route to get a list of sensors near to a given location
 @router.get("/near")
-def get_sensors_near(latitude: float, longitude: float, db: Session = Depends(get_db),
+def get_sensors_near(latitude: float, longitude: float, radius: float, db: Session = Depends(get_db),
                      redis_client: RedisClient = Depends(get_redis_client),
                      mongodb_client: MongoDBClient = Depends(get_mongodb_client)):
     return repository.get_sensors_near(db=db, mongo_client=mongodb_client, redis=redis_client, latitude=latitude,
-                                       longitude=longitude)
+                                       longitude=longitude, radius=radius)
 
 
 # 🙋🏽‍♀️ Add here the route to get all sensors

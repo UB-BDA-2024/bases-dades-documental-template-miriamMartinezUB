@@ -64,13 +64,15 @@ def delete_sensor(db: Session, redis: RedisClient, mongo_client: MongoDBClient, 
     return db_sensor
 
 
-def get_sensors_near(db: Session, redis: RedisClient, mongo_client: MongoDBClient, latitude: float, longitude: float) -> \
+def get_sensors_near(db: Session, redis: RedisClient, mongo_client: MongoDBClient, latitude: float, longitude: float,
+                     radius: float) -> \
         List[schemas.Sensor]:
     sensors = []
     collection = mongo_client.getCollection(_SENSOR_COLLECTION)
+    radius_in_degrees = radius / 111.12
     sensors_dicts = collection.find({
-        'latitude': {'$gte': latitude - 1, '$lte': latitude + 1},
-        'longitude': {'$gte': longitude - 1, '$lte': longitude + 1}
+        'latitude': {'$gte': latitude - radius_in_degrees, '$lte': latitude + radius_in_degrees},
+        'longitude': {'$gte': longitude - radius_in_degrees, '$lte': longitude + radius_in_degrees}
     })
     for sensor_dict in sensors_dicts:
         sensor_create = schemas.SensorCreate(**sensor_dict)
