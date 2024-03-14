@@ -68,6 +68,7 @@ def get_sensors_near(db: Session, redis: RedisClient, mongo_client: MongoDBClien
                      radius: float) -> \
         List[schemas.Sensor]:
     sensors = []
+
     collection = mongo_client.getCollection(_SENSOR_COLLECTION)
     radius_in_degrees = radius / 111.12
     sensors_dicts = collection.find({
